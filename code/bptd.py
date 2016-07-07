@@ -20,21 +20,18 @@ STATE_VARS = ['Lambda_SKCC',
               'Theta_NC',
               'Phi_AK',
               'Psi_TS',
-              'W_d_C',
-              'W_a_C',
-              'W_K',
-              'W_S',
-              'A_N',
+              'eta_d_C',
+              'eta_a_C',
+              'nu_K',
+              'rho_S',
+              'alpha_N',
               'beta',
-              'b',
-              'd']
+              'delta',
+              'zeta']
 
 
 class BPTD(BaseEstimator):
-    """Bayesian non-parametric Poisson Tucker decomposition...
-
-    ...for dynamic multiplex directed networks.
-    """
+    """Bayesian Poisson Tucker decomposition"""
     def __init__(self, n_compressions=3, n_communities=25, n_topics=5, e=0.1, f=0.1, gam=None,
                  n_iter=1000, schedule={}, verbose=True, n_threads=MAX_THREADS, eps=1e-300):
         self.n_compressions = n_compressions
@@ -116,11 +113,11 @@ class BPTD(BaseEstimator):
         assert self.Phi_AK.shape == (A, K)
         assert self.Theta_NC.shape == (N, C)
         assert self.Psi_TS.shape == (T, S)
-        assert self.W_a_C.shape == (C,)
-        assert self.W_d_C.shape == (C,)
-        assert self.W_K.shape == (K,)
-        assert self.W_S.shape == (S,)
-        assert self.A_N.shape == (N,)
+        assert self.eta_a_C.shape == (C,)
+        assert self.eta_d_C.shape == (C,)
+        assert self.nu_K.shape == (K,)
+        assert self.rho_S.shape == (S,)
+        assert self.alpha_N.shape == (N,)
         for k in STATE_VARS:
             if hasattr(self, k):
                 assert np.isfinite(getattr(self, k)).all()
@@ -183,25 +180,25 @@ class BPTD(BaseEstimator):
         if self.gam is None:
             self.gam = (0.1 ** (1. / 4)) * (S + K + C + C)
             print 'Setting gam to: %f' % self.gam
-        self.beta = 1.
+        self.zeta = 1.
 
-        self.W_S = sample_gamma(self.gam / (S + K + C + C), 1. / self.beta, size=S)
-        self.W_K = sample_gamma(self.gam / (S + K + C + C), 1. / self.beta, size=K)
-        self.W_d_C = sample_gamma(self.gam / (S + K + C + C), 1. / self.beta, size=C)
-        self.W_a_C = sample_gamma(self.gam / (S + K + C + C), 1. / self.beta, size=C)
+        self.rho_S = sample_gamma(self.gam / (S + K + C + C), 1. / self.zeta, size=S)
+        self.nu_K = sample_gamma(self.gam / (S + K + C + C), 1. / self.zeta, size=K)
+        self.eta_d_C = sample_gamma(self.gam / (S + K + C + C), 1. / self.zeta, size=C)
+        self.eta_a_C = sample_gamma(self.gam / (S + K + C + C), 1. / self.zeta, size=C)
 
         self.d = 1.
         shp_SKCC = np.ones((S, K, C, C))
-        shp_SKCC[:] = np.outer(self.W_d_C, self.W_d_C)
-        shp_SKCC[:, :, np.identity(C).astype(bool)] = self.W_a_C * self.W_d_C
-        shp_SKCC *= self.W_K[None, :, None, None]
-        shp_SKCC *= self.W_S[:, None, None, None]
+        shp_SKCC[:] = np.outer(self.eta_d_C, self.eta_d_C)
+        shp_SKCC[:, :, np.identity(C).astype(bool)] = self.eta_a_C * self.eta_d_C
+        shp_SKCC *= self.nu_K[None, :, None, None]
+        shp_SKCC *= self.rho_S[:, None, None, None]
         self.Lambda_SKCC = sample_gamma(shp_SKCC, 1. / self.d)
         self.Psi_TS = sample_gamma(self.e, 1. / self.f, size=(T, S))
         self.Phi_AK = np.ones((A, K))
         self.Phi_AK[:, :] = rn.dirichlet(self.e * np.ones(A), size=K).T
-        self.A_N = np.ones(N) * self.e
-        self.b = 1.
+        self.alpha_N = np.ones(N) * self.e
+        self.beta = 1.
         self.Theta_NC = np.ones((N, C))
 
     def _update(self, data, mask=None):
@@ -220,14 +217,14 @@ class BPTD(BaseEstimator):
         Theta_NC = self.Theta_NC
         Phi_AK = self.Phi_AK
         Psi_TS = self.Psi_TS
-        W_d_C = self.W_d_C
-        W_a_C = self.W_a_C
-        W_K = self.W_K
-        W_S = self.W_S
-        A_N = self.A_N
+        eta_d_C = self.eta_d_C
+        eta_a_C = self.eta_a_C
+        nu_K = self.nu_K
+        rho_S = self.rho_S
+        alpha_N = self.alpha_N
         beta = self.beta
-        b = self.b
-        d = self.d
+        zeta = self.zeta
+        delta = self.delta
 
         # Hyperparameters
         if self.gam is None:
@@ -261,26 +258,26 @@ class BPTD(BaseEstimator):
         if mask is None:
             mask = np.abs(1 - np.identity(N).astype(int))
 
-        zeta_SCC = np.zeros((S, C, C))
+        tmp_SCC = np.zeros((S, C, C))
         if mask.ndim == 2:
             mask_NN = mask
-            zeta_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
-            zeta_SCC *= Psi_TS.sum(axis=0)[:, None, None]
+            tmp_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
+            tmp_SCC *= Psi_TS.sum(axis=0)[:, None, None]
         else:
             mask_TNN = mask
-            zeta_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-            zeta_TCC = np.einsum('tid,ic->tcd', zeta_TNC, Theta_NC)
-            zeta_SCC[:] = np.einsum('tcd,ts->scd', zeta_TCC, Psi_TS)
+            tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+            tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
+            tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
 
         Lambda_SCC = Lambda_SKCC.sum(axis=1)
         Lambda_KCC = Lambda_SKCC.sum(axis=0)
         Lambda_CC = Lambda_KCC.sum(axis=0)
 
         shp_SKCC = np.ones((S, K, C, C))
-        shp_SKCC[:] = np.outer(W_d_C, W_d_C)
-        shp_SKCC[:, :, bool_diag_CC] = W_a_C * W_d_C
-        shp_SKCC *= W_K[None, :, None, None]
-        shp_SKCC *= W_S[:, None, None, None]
+        shp_SKCC[:] = np.outer(eta_d_C, eta_d_C)
+        shp_SKCC[:, :, bool_diag_CC] = eta_a_C * eta_d_C
+        shp_SKCC *= nu_K[None, :, None, None]
+        shp_SKCC *= rho_S[:, None, None, None]
 
         schedule = self.schedule.copy()
         for k, v in schedule.items():
@@ -346,22 +343,22 @@ class BPTD(BaseEstimator):
             if schedule['Lambda_SKCC'] <= self.total_iter:
                 start = time.time()
 
-                shp_SKCC[:] = np.outer(W_d_C, W_d_C)
-                shp_SKCC[:, :, bool_diag_CC] = W_a_C * W_d_C
-                shp_SKCC *= W_K[None, :, None, None]
-                shp_SKCC *= W_S[:, None, None, None]
+                shp_SKCC[:] = np.outer(eta_d_C, eta_d_C)
+                shp_SKCC[:, :, bool_diag_CC] = eta_a_C * eta_d_C
+                shp_SKCC *= nu_K[None, :, None, None]
+                shp_SKCC *= rho_S[:, None, None, None]
                 post_shp_SKCC = shp_SKCC + Y_SKCC
 
                 if mask.ndim == 2:
                     mask_NN = mask
-                    zeta_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
-                    zeta_SCC *= Psi_TS.sum(axis=0)[:, None, None]
+                    tmp_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
+                    tmp_SCC *= Psi_TS.sum(axis=0)[:, None, None]
                 else:
                     mask_TNN = mask
-                    zeta_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-                    zeta_TCC = np.einsum('tid,ic->tcd', zeta_TNC, Theta_NC)
-                    zeta_SCC = np.einsum('tcd,ts->scd', zeta_TCC, Psi_TS)
-                post_rte_SKCC = d + zeta_SCC[:, None, :, :]
+                    tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+                    tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
+                    tmp_SCC = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
+                post_rte_SKCC = delta + tmp_SCC[:, None, :, :]
 
                 Lambda_SKCC[:] = sample_gamma(post_shp_SKCC, 1. / post_rte_SKCC)
                 end = time.time() - start
@@ -374,16 +371,16 @@ class BPTD(BaseEstimator):
                 Lambda_SCC[:] = Lambda_SKCC.sum(axis=1)
                 if mask.ndim == 2:
                     mask_NN = mask
-                    zeta_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
-                    zeta_TS = (zeta_SCC * Lambda_SCC).sum(axis=(1, 2)).reshape((1, S))
+                    tmp_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
+                    tmp_TS = (tmp_SCC * Lambda_SCC).sum(axis=(1, 2)).reshape((1, S))
                 else:
                     mask_TNN = mask
-                    zeta_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-                    zeta_TCC = np.einsum('tid,ic->tcd', zeta_TNC, Theta_NC)
-                    zeta_TS = np.einsum('tcd,scd->ts', zeta_TCC, Lambda_SCC)
+                    tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+                    tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
+                    tmp_TS = np.einsum('tcd,scd->ts', tmp_TCC, Lambda_SCC)
 
                 post_shp_TS = e + Y_TS
-                post_rte_TS = f + zeta_TS
+                post_rte_TS = f + tmp_TS
                 Psi_TS[:] = sample_gamma(post_shp_TS, 1. / post_rte_TS)
 
                 end = time.time() - start
@@ -396,44 +393,44 @@ class BPTD(BaseEstimator):
                 Psi_S = Psi_TS.sum(axis=0)
 
                 if mask.ndim == 2:
-                    zeta_CC = (Lambda_SCC * Psi_S[:, None, None]).sum(axis=0)
+                    tmp_CC = (Lambda_SCC * Psi_S[:, None, None]).sum(axis=0)
 
-                    zeta_s_NC = np.dot(zeta_CC, np.dot(mask_NN, Theta_NC).T).T
-                    zeta_r_NC = np.dot(np.dot(mask_NN.T, Theta_NC), zeta_CC)
+                    tmp_s_NC = np.dot(tmp_CC, np.dot(mask_NN, Theta_NC).T).T
+                    tmp_r_NC = np.dot(np.dot(mask_NN.T, Theta_NC), tmp_CC)
                 else:
-                    zeta_TCC = np.einsum('scd,ts->tcd', Lambda_SCC, Psi_TS)
-                    zeta_s_TCN = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-                    zeta_r_TCN = np.einsum('tij,ic->tcj', mask_TNN, Theta_NC)
+                    tmp_TCC = np.einsum('scd,ts->tcd', Lambda_SCC, Psi_TS)
+                    tmp_s_TCN = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+                    tmp_r_TCN = np.einsum('tij,ic->tcj', mask_TNN, Theta_NC)
 
-                    zeta_s_NC = np.einsum('tcd,tid->ci', zeta_TCC, zeta_s_TCN).T
-                    zeta_r_NC = np.einsum('tcd,tcj->dj', zeta_TCC, zeta_r_TCN).T
-                zeta_NC = zeta_s_NC + zeta_r_NC
+                    tmp_s_NC = np.einsum('tcd,tid->ci', tmp_TCC, tmp_s_TCN).T
+                    tmp_r_NC = np.einsum('tcd,tcj->dj', tmp_TCC, tmp_r_TCN).T
+                tmp_NC = tmp_s_NC + tmp_r_NC
 
-                post_shp_NC = A_N[:, None] + Y_s_NC + Y_r_NC
-                post_rte_NC = b + zeta_NC
+                post_shp_NC = alpha_N[:, None] + Y_s_NC + Y_r_NC
+                post_rte_NC = beta + tmp_NC
 
                 Theta_NC[:, :] = sample_gamma(post_shp_NC, 1. / post_rte_NC)
 
                 if mask.ndim == 2:
-                    zeta_CC = np.einsum('scd,s->cd', Lambda_SCC, Psi_S)
+                    tmp_CC = np.einsum('scd,s->cd', Lambda_SCC, Psi_S)
 
-                    zeta_s_NC = np.dot(zeta_CC, np.dot(mask_NN, Theta_NC).T).T
-                    zeta_r_NC = np.dot(np.dot(mask_NN.T, Theta_NC), zeta_CC)
+                    tmp_s_NC = np.dot(tmp_CC, np.dot(mask_NN, Theta_NC).T).T
+                    tmp_r_NC = np.dot(np.dot(mask_NN.T, Theta_NC), tmp_CC)
                 else:
-                    zeta_TCC = np.einsum('scd,ts->tcd', Lambda_SCC, Psi_TS)
-                    zeta_s_TCN = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-                    zeta_r_TCN = np.einsum('tij,ic->tcj', mask_TNN, Theta_NC)
+                    tmp_TCC = np.einsum('scd,ts->tcd', Lambda_SCC, Psi_TS)
+                    tmp_s_TCN = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+                    tmp_r_TCN = np.einsum('tij,ic->tcj', mask_TNN, Theta_NC)
 
-                    zeta_s_NC = np.einsum('tcd,tid->ci', zeta_TCC, zeta_s_TCN).T
-                    zeta_r_NC = np.einsum('tcd,tcj->dj', zeta_TCC, zeta_r_TCN).T
-                zeta_NC = zeta_s_NC + zeta_r_NC
+                    tmp_s_NC = np.einsum('tcd,tid->ci', tmp_TCC, tmp_s_TCN).T
+                    tmp_r_NC = np.einsum('tcd,tcj->dj', tmp_TCC, tmp_r_TCN).T
+                tmp_NC = tmp_s_NC + tmp_r_NC
 
                 H_N[:] = 0
                 for (i, c) in np.ndindex((N, C)):
-                    H_N[i] += crt(Y_s_NC[i, c] + Y_r_NC[i, c], A_N[i])
+                    H_N[i] += crt(Y_s_NC[i, c] + Y_r_NC[i, c], alpha_N[i])
                 post_shp_N = e + H_N
-                post_rte_N = f + np.log1p(zeta_NC / b).sum(axis=1)
-                A_N[:] = sample_gamma(post_shp_N, 1. / post_rte_N)
+                post_rte_N = f + np.log1p(tmp_NC / b).sum(axis=1)
+                alpha_N[:] = sample_gamma(post_shp_N, 1. / post_rte_N)
 
                 end = time.time() - start
                 if self.verbose:
@@ -448,128 +445,128 @@ class BPTD(BaseEstimator):
                 if self.verbose:
                     print '%f: sampling phi' % end
 
-            if any(schedule[s] <= self.total_iter for s in ['W_a_C', 'W_d_C']):
+            if any(schedule[s] <= self.total_iter for s in ['eta_a_C', 'eta_d_C']):
                 start = time.time()
-                w = W_K.sum()
+                w = nu_K.sum()
                 Y_SCC = Y_SKCC.sum(axis=1)
 
                 if mask.ndim == 2:
-                    zeta_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
-                    zeta_SCC *= Psi_TS.sum(axis=0)[:, None, None]
+                    tmp_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
+                    tmp_SCC *= Psi_TS.sum(axis=0)[:, None, None]
                 else:
-                    zeta_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-                    zeta_TCC = np.einsum('tid,ic->tcd', zeta_TNC, Theta_NC)
-                    zeta_SCC[:] = np.einsum('tcd,ts->scd', zeta_TCC, Psi_TS)
-                zeta_SCC[:] = np.log1p(zeta_SCC / d)
-                zeta_CC = w * (W_S[:, None, None] * zeta_SCC).sum(axis=0)
+                    tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+                    tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
+                    tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
+                tmp_SCC[:] = np.log1p(tmp_SCC / d)
+                tmp_CC = w * (rho_S[:, None, None] * tmp_SCC).sum(axis=0)
 
                 for c in xrange(C):
                     Y_2S[:S] = Y_SCC[:, c, c]
-                    m_a = sumcrt(Y_2S[:S], W_S * w * W_d_C[c] * W_a_C[c], num_threads=1)
-                    zeta_a = W_d_C[c] * zeta_CC[c, c]
-                    W_a_C[c] = sample_gamma(gam / (S + K + C + C) + m_a, 1. / (beta + zeta_a))
+                    m_a = sumcrt(Y_2S[:S], rho_S * w * eta_d_C[c] * eta_a_C[c], num_threads=1)
+                    tmp_a = eta_d_C[c] * tmp_CC[c, c]
+                    eta_a_C[c] = sample_gamma(gam / (S + K + C + C) + m_a, 1. / (zeta + tmp_a))
 
-                    m_d = sumcrt(Y_2S[:S], W_S * w * W_d_C[c] * W_a_C[c], num_threads=1)
-                    zeta_d = W_a_C[c] * zeta_CC[c, c]
+                    m_d = sumcrt(Y_2S[:S], rho_S * w * eta_d_C[c] * eta_a_C[c], num_threads=1)
+                    tmp_d = eta_a_C[c] * tmp_CC[c, c]
                     for c2 in xrange(C):
                         if c == c2:
                             continue
                         Y_2S[:S] = Y_SCC[:, c, c2]
                         Y_2S[S:] = Y_SCC[:, c2, c]
-                        tmp_2S[:S] = W_S * w * W_d_C[c] * W_d_C[c2]
+                        tmp_2S[:S] = rho_S * w * eta_d_C[c] * eta_d_C[c2]
                         tmp_2S[S:] = tmp_2S[:S]
                         m_d += sumcrt(Y_2S, tmp_2S, num_threads=1)
-                        zeta_d += W_d_C[c2] * (zeta_CC[c, c2] + zeta_CC[c2, c])
-                    W_d_C[c] = sample_gamma(gam / (S + K + C + C) + m_d, 1. / (beta + zeta_d))
+                        tmp_d += eta_d_C[c2] * (tmp_CC[c, c2] + tmp_CC[c2, c])
+                    eta_d_C[c] = sample_gamma(gam / (S + K + C + C) + m_d, 1. / (zeta + tmp_d))
 
                 end = time.time() - start
                 if self.verbose:
                     print '%f: sampling W_C' % end
 
-            if schedule['W_K'] <= self.total_iter:
+            if schedule['nu_K'] <= self.total_iter:
                 start = time.time()
                 shp_SCC = np.zeros((S, C, C))
-                shp_SCC[:] = np.outer(W_d_C, W_d_C)
-                shp_SCC[:, bool_diag_CC] = W_a_C * W_d_C
-                shp_SCC *= W_S[:, None, None]
+                shp_SCC[:] = np.outer(eta_d_C, eta_d_C)
+                shp_SCC[:, bool_diag_CC] = eta_a_C * eta_d_C
+                shp_SCC *= rho_S[:, None, None]
                 shp_ = shp_SCC.ravel()
 
                 for k in xrange(K):
-                    L_K[k] = sumcrt(Y_SKCC[:, k].ravel(), shp_ * W_K[k], num_threads=1)
+                    L_K[k] = sumcrt(Y_SKCC[:, k].ravel(), shp_ * nu_K[k], num_threads=1)
 
                 if mask.ndim == 2:
-                    zeta_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
-                    zeta_SCC *= Psi_TS.sum(axis=0)[:, None, None]
+                    tmp_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
+                    tmp_SCC *= Psi_TS.sum(axis=0)[:, None, None]
                 else:
-                    zeta_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-                    zeta_TCC = np.einsum('tid,ic->tcd', zeta_TNC, Theta_NC)
-                    zeta_SCC[:] = np.einsum('tcd,ts->scd', zeta_TCC, Psi_TS)
-                zeta = (shp_SCC * np.log1p(zeta_SCC / d)).sum()
+                    tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+                    tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
+                    tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
+                tmp = (shp_SCC * np.log1p(tmp_SCC / d)).sum()
 
                 post_shp_K = gam / (S + K + C + C) + L_K
-                post_rte = beta + zeta
+                post_rte = zeta + tmp
 
-                W_K[:] = sample_gamma(post_shp_K, 1. / post_rte)
+                nu_K[:] = sample_gamma(post_shp_K, 1. / post_rte)
 
                 end = time.time() - start
                 if self.verbose:
-                    print '%f: sampling W_K' % end
+                    print '%f: sampling nu_K' % end
 
-            if schedule['W_S'] <= self.total_iter:
+            if schedule['rho_S'] <= self.total_iter:
                 start = time.time()
                 shp_KCC = np.zeros((K, C, C))
-                shp_KCC[:] = np.outer(W_d_C, W_d_C)
-                shp_KCC[:, bool_diag_CC] = W_a_C * W_d_C
-                shp_KCC *= W_K[:, None, None]
+                shp_KCC[:] = np.outer(eta_d_C, eta_d_C)
+                shp_KCC[:, bool_diag_CC] = eta_a_C * eta_d_C
+                shp_KCC *= nu_K[:, None, None]
                 shp_CC = shp_KCC.sum(axis=0)
                 shp_ = shp_KCC.ravel()
 
                 for s in xrange(S):
-                    L_S[s] = sumcrt(Y_SKCC[s].ravel(), shp_ * W_S[s], num_threads=1)
+                    L_S[s] = sumcrt(Y_SKCC[s].ravel(), shp_ * rho_S[s], num_threads=1)
 
                 if mask.ndim == 2:
-                    zeta_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
-                    zeta_SCC *= Psi_TS.sum(axis=0)[:, None, None]
+                    tmp_SCC[:] = np.dot(Theta_NC.T, np.dot(mask_NN, Theta_NC))
+                    tmp_SCC *= Psi_TS.sum(axis=0)[:, None, None]
                 else:
-                    zeta_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
-                    zeta_TCC = np.einsum('tid,ic->tcd', zeta_TNC, Theta_NC)
-                    zeta_SCC[:] = np.einsum('tcd,ts->scd', zeta_TCC, Psi_TS)
-                zeta_S = (shp_CC * np.log1p(zeta_SCC / d)).sum(axis=(1, 2))
+                    tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
+                    tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
+                    tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
+                tmp_S = (shp_CC * np.log1p(tmp_SCC / d)).sum(axis=(1, 2))
 
                 post_shp_S = gam / (S + K + C + C) + L_S
-                post_rte_S = beta + zeta_S
+                post_rte_S = zeta + tmp_S
 
-                W_S[:] = sample_gamma(post_shp_S, 1. / post_rte_S)
+                rho_S[:] = sample_gamma(post_shp_S, 1. / post_rte_S)
 
                 end = time.time() - start
                 if self.verbose:
-                    print '%f: sampling W_S' % end
+                    print '%f: sampling rho_S' % end
+
+            if schedule['zeta'] <= self.total_iter:
+                start = time.time()
+                post_shp = e + gam
+                post_rte = f + rho_S.sum() + nu_K.sum() + eta_a_C.sum() + eta_d_C.sum()
+                self.zeta = zeta = sample_gamma(post_shp, 1. / post_rte)
+                end = time.time() - start
+                if self.verbose:
+                    print '%f: sampling zeta' % end
 
             if schedule['beta'] <= self.total_iter:
                 start = time.time()
-                post_shp = e + gam
-                post_rte = f + W_S.sum() + W_K.sum() + W_a_C.sum() + W_d_C.sum()
-                self.beta = beta = sample_gamma(post_shp, 1. / post_rte)
-                end = time.time() - start
-                if self.verbose:
-                    print '%f: sampling beta' % end
-
-            if schedule['b'] <= self.total_iter:
-                start = time.time()
-                post_shp = e + C * A_N.sum()
+                post_shp = e + C * alpha_N.sum()
                 post_rte = f + Theta_NC.sum()
-                b = self.b = sample_gamma(post_shp, 1. / post_rte)
+                beta = self.beta = sample_gamma(post_shp, 1. / post_rte)
                 end = time.time() - start
                 if self.verbose:
                     print '%f: sampling b' % end
 
-            if schedule['d'] <= self.total_iter:
+            if schedule['delta'] <= self.total_iter:
                 start = time.time()
-                shp_CC = np.outer(W_d_C, W_d_C)
-                shp_CC[bool_diag_CC] = W_a_C * W_d_C
-                post_shp = e + W_S.sum() * W_K.sum() * shp_CC.sum()
+                shp_CC = np.outer(eta_d_C, eta_d_C)
+                shp_CC[bool_diag_CC] = eta_a_C * eta_d_C
+                post_shp = e + rho_S.sum() * nu_K.sum() * shp_CC.sum()
                 post_rte = f + Lambda_SKCC.sum()
-                d = self.d = sample_gamma(post_shp, 1. / post_rte)
+                delta = self.delta = sample_gamma(post_shp, 1. / post_rte)
                 end = time.time() - start
                 if self.verbose:
                     print '%f: sampling d' % end
