@@ -25,10 +25,10 @@ SOFTWARE.
 
 ## What's included:
 
-* [bptd.py](https://github.com/aschein/bptf/blob/master/code/bptd.py): The main code file.  Implements Gibbs sampling inference for BPTD.
-* [utils.py](https://github.com/aschein/bptf/blob/master/code/utils.py): Python utility methods.
-* [update.pyx](https://github.com/aschein/bptf/blob/master/src/update.pyx): Cython implementation of sampling methods.
-* [setup.py](https://github.com/aschein/bptf/blob/master/src/setup.py): Setup file for compiling Cython.
+* [bptd.py](https://github.com/aschein/bptd/blob/master/code/bptd.py): The main code file.  Implements Gibbs sampling inference for BPTD.
+* [utils.py](https://github.com/aschein/bptd/blob/master/code/utils.py): Python utility methods.
+* [update.pyx](https://github.com/aschein/bptd/blob/master/code/update.pyx): Cython implementation of sampling methods.
+* [setup.py](https://github.com/aschein/bptd/blob/master/code/setup.py): Setup file for compiling Cython.
 
 ## Dependencies:
 
