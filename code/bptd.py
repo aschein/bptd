@@ -10,8 +10,7 @@ from copy import deepcopy
 from collections import defaultdict
 from sklearn.base import BaseEstimator
 
-from utils import sample_gamma
-from update import get_omp_num_threads, update_sources_compositional_2, update_sources_compositional_sparse_2, crt, sumcrt, update_sources_compositional_sparse_3
+from sampling import get_omp_num_threads, comp_allocate, crt, sumcrt, sample_gamma
 
 MAX_THREADS = get_omp_num_threads()
 
@@ -48,8 +47,8 @@ class BPTD(BaseEstimator):
         self.eps = eps
 
     def get_state(self):
-        state = {s: np.copy(getattr(self, s)) for s in STATE_VARS if hasattr(self, s)}
-        state['Y_SKCC'] = self.Y_SKCC
+        state = dict([(s, np.copy(getattr(self, s))) for s in STATE_VARS if hasattr(self, s)])
+        state['Y_SKCC'] = self.Y_SKCC.copy()
         return state
 
     def set_state(self, state):
@@ -204,8 +203,6 @@ class BPTD(BaseEstimator):
     def _update(self, data, mask=None):
         vals_P = data.vals.astype(np.uint32)
         subs_P4 = np.asarray(zip(*data.subs), dtype=np.uint32)
-        P = vals_P.size
-
         N = self.n_actors
         A = self.n_actions
         T = self.n_timesteps
@@ -245,14 +242,12 @@ class BPTD(BaseEstimator):
         tmp_2S = np.ones(2 * S)
 
         # Latent CRT sources
-        L_NC = np.zeros((N, C), dtype=np.uint32)
         L_K = np.zeros(K, dtype=np.uint32)
         L_S = np.zeros(S, dtype=np.uint32)
         H_N = np.zeros(N, dtype=np.uint32)
 
         # Masks for treating diagonals
         int_diag_CC = np.identity(C)
-        int_off_CC = np.abs(1 - int_diag_CC)
         bool_diag_CC = int_diag_CC.astype(bool)
 
         if mask is None:
@@ -270,8 +265,6 @@ class BPTD(BaseEstimator):
             tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
 
         Lambda_SCC = Lambda_SKCC.sum(axis=1)
-        Lambda_KCC = Lambda_SKCC.sum(axis=0)
-        Lambda_CC = Lambda_KCC.sum(axis=0)
 
         shp_SKCC = np.ones((S, K, C, C))
         shp_SKCC[:] = np.outer(eta_d_C, eta_d_C)
@@ -293,52 +286,23 @@ class BPTD(BaseEstimator):
             total_start = time.time()
 
             if schedule['Sources'] <= self.total_iter:
-
-                subs_Q4 = np.asarray(zip(*np.where(self.Lambda_SKCC > self.eps))).astype(np.uint32)
-                sparsity = subs_Q4.shape[0] / float(Lambda_SKCC.size)
+                start = time.time()
+                comp_allocate(vals_P=vals_P,
+                              subs_P4=subs_P4,
+                              Theta_s_NC=Theta_NC,
+                              Theta_r_NC=Theta_NC,
+                              Phi_AK=Phi_AK,
+                              Psi_TS=Psi_TS,
+                              Lambda_SKCC=Lambda_SKCC,
+                              Y_s_NC=Y_s_NC,
+                              Y_r_NC=Y_r_NC,
+                              Y_AK=Y_AK,
+                              Y_TS=Y_TS,
+                              Y_SKCC=Y_SKCC,
+                              num_threads=self.n_threads)
+                end = time.time() - start
                 if self.verbose:
-                    print 'Lambda sparsity: %f' % (sparsity)
-
-                if (sparsity > 0.):
-                    start = time.time()
-                    update_sources_compositional_2(vals_P=vals_P,
-                                                   subs_P4=subs_P4,
-                                                   Theta_s_NC=Theta_NC,
-                                                   Theta_r_NC=Theta_NC,
-                                                   Phi_AK=Phi_AK,
-                                                   Psi_TS=Psi_TS,
-                                                   Lambda_SKCC=Lambda_SKCC,
-                                                   Y_s_NC=Y_s_NC,
-                                                   Y_r_NC=Y_r_NC,
-                                                   Y_AK=Y_AK,
-                                                   Y_TS=Y_TS,
-                                                   Y_SKCC=Y_SKCC,
-                                                   num_threads=self.n_threads)
-                    end = time.time() - start
-                    if self.verbose:
-                        print '%f: sampling tokens compositionally' % end
-
-                else:
-                    start = time.time()
-                    update_sources_compositional_sparse_3(vals_P=vals_P,
-                                                          subs_P4=subs_P4,
-                                                          subs_Q4=subs_Q4,
-                                                          Theta_s_NC=Theta_NC,
-                                                          Theta_r_NC=Theta_NC,
-                                                          Phi_AK=Phi_AK,
-                                                          Psi_TS=Psi_TS,
-                                                          Lambda_SKCC=Lambda_SKCC,
-                                                          Y_s_NC=Y_s_NC,
-                                                          Y_r_NC=Y_r_NC,
-                                                          Y_AK=Y_AK,
-                                                          Y_TS=Y_TS,
-                                                          Y_SKCC=Y_SKCC,
-                                                          num_threads=self.n_threads,
-                                                          eps=1e-300)
-                    assert vals_P.sum() == Y_TS.sum()
-                    end = time.time() - start
-                    if self.verbose:
-                        print '%f: alt sampling tokens sparsely' % end
+                    print '%f: sampling tokens compositionally' % end
 
             if schedule['Lambda_SKCC'] <= self.total_iter:
                 start = time.time()
@@ -429,7 +393,7 @@ class BPTD(BaseEstimator):
                 for (i, c) in np.ndindex((N, C)):
                     H_N[i] += crt(Y_s_NC[i, c] + Y_r_NC[i, c], alpha_N[i])
                 post_shp_N = e + H_N
-                post_rte_N = f + np.log1p(tmp_NC / b).sum(axis=1)
+                post_rte_N = f + np.log1p(tmp_NC / beta).sum(axis=1)
                 alpha_N[:] = sample_gamma(post_shp_N, 1. / post_rte_N)
 
                 end = time.time() - start
@@ -457,7 +421,7 @@ class BPTD(BaseEstimator):
                     tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
                     tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
                     tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
-                tmp_SCC[:] = np.log1p(tmp_SCC / d)
+                tmp_SCC[:] = np.log1p(tmp_SCC / delta)
                 tmp_CC = w * (rho_S[:, None, None] * tmp_SCC).sum(axis=0)
 
                 for c in xrange(C):
@@ -501,7 +465,7 @@ class BPTD(BaseEstimator):
                     tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
                     tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
                     tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
-                tmp = (shp_SCC * np.log1p(tmp_SCC / d)).sum()
+                tmp = (shp_SCC * np.log1p(tmp_SCC / delta)).sum()
 
                 post_shp_K = gam / (S + K + C + C) + L_K
                 post_rte = zeta + tmp
@@ -531,7 +495,7 @@ class BPTD(BaseEstimator):
                     tmp_TNC = np.einsum('tij,jd->tid', mask_TNN, Theta_NC)
                     tmp_TCC = np.einsum('tid,ic->tcd', tmp_TNC, Theta_NC)
                     tmp_SCC[:] = np.einsum('tcd,ts->scd', tmp_TCC, Psi_TS)
-                tmp_S = (shp_CC * np.log1p(tmp_SCC / d)).sum(axis=(1, 2))
+                tmp_S = (shp_CC * np.log1p(tmp_SCC / delta)).sum(axis=(1, 2))
 
                 post_shp_S = gam / (S + K + C + C) + L_S
                 post_rte_S = zeta + tmp_S
@@ -576,5 +540,4 @@ class BPTD(BaseEstimator):
                 print 'ITERATION %d:\t\
                        Time %f:'\
                        % (self.total_iter, end)
-                curr_score = score
-             self.total_iter += 1
+            self.total_iter += 1
