@@ -26,7 +26,7 @@ SOFTWARE.
 ## What's included:
 
 * [bptd.py](https://github.com/aschein/bptd/blob/master/code/bptd.py): The main code file.  Implements Gibbs sampling inference for BPTD.
-* [sampling.pyx](https://github.com/aschein/bptd/blob/master/code/update.pyx): Sampling methods including Cython implementation of compositional allocation.
+* [sampling.pyx](https://github.com/aschein/bptd/blob/master/code/sampling.pyx): Sampling methods including Cython implementation of compositional allocation.
 * [setup.py](https://github.com/aschein/bptd/blob/master/code/setup.py): Setup file for compiling Cython.
 
 ## Dependencies:
