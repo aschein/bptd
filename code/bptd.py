@@ -180,6 +180,7 @@ class BPTD(BaseEstimator):
             self.gam = (0.1 ** (1. / 4)) * (S + K + C + C)
             print 'Setting gam to: %f' % self.gam
         self.zeta = 1.
+        self.delta = 1.
 
         self.rho_S = sample_gamma(self.gam / (S + K + C + C), 1. / self.zeta, size=S)
         self.nu_K = sample_gamma(self.gam / (S + K + C + C), 1. / self.zeta, size=K)
