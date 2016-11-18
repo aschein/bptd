@@ -38,3 +38,30 @@ SOFTWARE.
 * scikit-learn
 * scikit-tensor
 * cython
+
+## Example usage:
+```
+import numpy.random as rn
+from bptd import BPTD
+
+N = 10  # number of actors  ("V", in the paper)
+A = 4   # number of action types
+T = 5   # number of time steps
+
+Y = rn.poisson(10, size=(N, N, A, T))  # toy example of a count tensor of size N x N x A x T
+
+model = BPTD(n_compressions=2,   # number of compressions (or "regimes") of time steps
+             n_communities=4,    # number of communities of actors
+             n_topics=2,         # number of topics of action types
+             n_iter=1000,        # how many Gibbs sampling iterations
+             verbose=False,      # whether to printout information each iteration
+             n_threads=1)        # how many threads to use (best to use 1)
+
+model.fit(Y)
+
+Theta_NC = model.Theta_NC         # actor-community factor matrix, size N X C
+Phi_AK = model.Phi_AK             # action-topic factor matrix, size A x K
+Psi_TS = model.Psi_TS             # time-regime factor matrix, size T x S
+Lambda_SKCC = model.Lambda_SKCC   # core tensor, size S x K x C x C
+
+
