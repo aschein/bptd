@@ -48,166 +48,162 @@ cdef int searchsorted(double val, double[::1] arr, int imax) nogil:
 
 cpdef comp_allocate(unsigned int[::1] vals_P,
                     unsigned int[:, ::1] subs_P4,
-                    double [:, ::1] Theta_s_NC,
-                    double [:, ::1] Theta_r_NC,
+                    double [:, ::1] Theta_s_VC,
+                    double [:, ::1] Theta_r_VC,
                     double [:, ::1] Phi_AK,
-                    double [:, ::1] Psi_TS,
-                    double [:, :, :, ::1] Lambda_SKCC,
-                    unsigned int[:, ::1] Y_s_NC,
-                    unsigned int[:, ::1] Y_r_NC,
-                    unsigned int[:, ::1] Y_TS,
+                    double [:, ::1] Psi_TR,
+                    double [:, :, :, ::1] Lambda_RKCC,
+                    unsigned int[:, ::1] Y_s_VC,
+                    unsigned int[:, ::1] Y_r_VC,
+                    unsigned int[:, ::1] Y_TR,
                     unsigned int[:, ::1] Y_AK,
-                    unsigned int[:, :, :, ::1] Y_SKCC,
+                    unsigned int[:, :, :, ::1] Y_RKCC,
                     size_t num_threads):
 
     cdef:
-        size_t P, N, A, T, S, K, C
-        np.intp_t p, i, j, a, t, s, c1, c2, k, thread_num
+        size_t P, V, A, T, R, K, C
+        np.intp_t p, i, j, a, t, r, c1, c2, k, thread_num
         unsigned int y, _
-        double theta_s, theta_r, phi, psi, lam, norm, u, r
-        double summand, summand_s, summand_sk, summand_skc, summand_skcc
+        double theta_s, theta_r, phi, psi, lam, norm, u
+        double summand, summand_r, summand_rk, summand_rkc, summand_rkcc
         
-        double [:, ::1] cdf_HS
-        double [:, :, ::1] cdf_HSK
-        double [:, :, :, ::1] cdf_HSKC
-        double [:, :, :, :, ::1] cdf_HSKCC
+        double [:, ::1] cdf_HR
+        double [:, :, ::1] cdf_HRK
+        double [:, :, :, ::1] cdf_HRKC
+        double [:, :, :, :, ::1] cdf_HRKCC
 
-        unsigned int[:, :, ::1] Y_s_HNC
-        unsigned int[:, :, ::1] Y_r_HNC
+        unsigned int[:, :, ::1] Y_s_HVC
+        unsigned int[:, :, ::1] Y_r_HVC
         unsigned int[:, :, ::1] Y_HAK
-        unsigned int[:, :, ::1] Y_HTS
-        unsigned int[:, :, :, :, ::1] Y_HSKCC
+        unsigned int[:, :, ::1] Y_HTR
+        unsigned int[:, :, :, :, ::1] Y_HRKCC
 
     P = vals_P.size
-    T, S = Psi_TS.shape[0], Psi_TS.shape[1]
-    N, C = Theta_s_NC.shape[0], Theta_s_NC.shape[1]
+    T, R = Psi_TR.shape[0], Psi_TR.shape[1]
+    V, C = Theta_s_VC.shape[0], Theta_s_VC.shape[1]
     A, K = Phi_AK.shape[0], Phi_AK.shape[1]
 
     # TODO: Use standard 'threadlocal' Cython variables.
-    cdf_HS = np.zeros((num_threads, S))
-    cdf_HSK = np.zeros((num_threads, S, K))
-    cdf_HSKC = np.zeros((num_threads, S, K, C))
-    cdf_HSKCC = np.zeros((num_threads, S, K, C, C))
-    Y_s_HNC = np.zeros((num_threads, N, C), dtype=np.uint32)
-    Y_r_HNC = np.zeros((num_threads, N, C), dtype=np.uint32)
+    cdf_HR = np.zeros((num_threads, R))
+    cdf_HRK = np.zeros((num_threads, R, K))
+    cdf_HRKC = np.zeros((num_threads, R, K, C))
+    cdf_HRKCC = np.zeros((num_threads, R, K, C, C))
+    Y_s_HVC = np.zeros((num_threads, V, C), dtype=np.uint32)
+    Y_r_HVC = np.zeros((num_threads, V, C), dtype=np.uint32)
     Y_HAK = np.zeros((num_threads, A, K), dtype=np.uint32)
-    Y_HTS = np.zeros((num_threads, T, S), dtype=np.uint32)
-    Y_HSKCC = np.zeros((num_threads, S, K, C, C), dtype=np.uint32)
+    Y_HTR = np.zeros((num_threads, T, R), dtype=np.uint32)
+    Y_HRKCC = np.zeros((num_threads, R, K, C, C), dtype=np.uint32)
 
-    Y_s_NC[:, :] = 0
-    Y_r_NC[:, :] = 0
+    Y_s_VC[:, :] = 0
+    Y_r_VC[:, :] = 0
     Y_AK[:, :] = 0
-    Y_TS[:, :] = 0
-    Y_SKCC[:, :, :, :] = 0
+    Y_TR[:, :] = 0
+    Y_RKCC[:, :, :, :] = 0
 
     with nogil:
-        for p in prange(P, schedule='dynamic', num_threads=num_threads):
+        for p in prange(P, schedule='static', num_threads=num_threads):
             thread_num = omp_get_thread_num()
             i = subs_P4[p, 0]
             j = subs_P4[p, 1]
             a = subs_P4[p, 2]
             t = subs_P4[p, 3]
 
-            summand_s = 0
-            for s in xrange(S):
-                psi = Psi_TS[t, s]
+            summand_r = 0
+            for r in xrange(R):
+                psi = Psi_TR[t, r]
 
-                summand_sk = 0
+                summand_rk = 0
                 for k in xrange(K):
                     phi = Phi_AK[a, k]
                     
-                    summand_skc = 0
+                    summand_rkc = 0
                     for c1 in xrange(C):
-                        theta_s = Theta_s_NC[i, c1]
+                        theta_s = Theta_s_VC[i, c1]
 
-                        summand_skcc = 0
+                        summand_rkcc = 0
                         for c2 in xrange(C):
-                            theta_r = Theta_r_NC[j, c2]
-                            lam = Lambda_SKCC[s, k, c1, c2]
-                            summand_skcc = summand_skcc + (lam * theta_r)
-                            cdf_HSKCC[thread_num, s, k, c1, c2] = summand_skcc
+                            theta_r = Theta_r_VC[j, c2]
+                            lam = Lambda_RKCC[r, k, c1, c2]
+                            summand_rkcc = summand_rkcc + (lam * theta_r)
+                            cdf_HRKCC[thread_num, r, k, c1, c2] = summand_rkcc
 
-                        summand_skc = summand_skc + (theta_s * summand_skcc)
-                        cdf_HSKC[thread_num, s, k, c1] = summand_skc
+                        summand_rkc = summand_rkc + (theta_s * summand_rkcc)
+                        cdf_HRKC[thread_num, r, k, c1] = summand_rkc
 
-                    summand_sk = summand_sk + (phi * summand_skc)
-                    cdf_HSK[thread_num, s, k] = summand_sk
+                    summand_rk = summand_rk + (phi * summand_rkc)
+                    cdf_HRK[thread_num, r, k] = summand_rk
 
-                summand_s = summand_s + (psi * summand_sk)
-                cdf_HS[thread_num, s] = summand_s
+                summand_r = summand_r + (psi * summand_rk)
+                cdf_HR[thread_num, r] = summand_r
 
             y = vals_P[p]
             for _ in xrange(y):
                 u = sample_uniform() 
-                norm = cdf_HS[thread_num, S-1]
-                r = u * norm
-                s = searchsorted(r, cdf_HS[thread_num], S-1)
+                norm = cdf_HR[thread_num, R-1]
+                r = searchsorted(u * norm, cdf_HR[thread_num], R-1)
 
                 u = sample_uniform() 
-                norm = cdf_HSK[thread_num, s, K-1]
-                r = u * norm
-                k = searchsorted(r, cdf_HSK[thread_num, s], K-1)
+                norm = cdf_HRK[thread_num, r, K-1]
+                k = searchsorted(u * norm, cdf_HRK[thread_num, r], K-1)
 
                 u = sample_uniform()
-                norm = cdf_HSKC[thread_num, s, k, C-1]
-                r = u * norm
-                c1 = searchsorted(r, cdf_HSKC[thread_num, s, k], C-1)
+                norm = cdf_HRKC[thread_num, r, k, C-1]
+                c1 = searchsorted(u * norm, cdf_HRKC[thread_num, r, k], C-1)
 
                 u = sample_uniform()
-                norm = cdf_HSKCC[thread_num, s, k, c1, C-1]
-                r = u * norm
-                c2 = searchsorted(r, cdf_HSKCC[thread_num, s, k, c1], C-1)
+                norm = cdf_HRKCC[thread_num, r, k, c1, C-1]
+                c2 = searchsorted(u * norm, cdf_HRKCC[thread_num, r, k, c1], C-1)
 
-                Y_s_HNC[thread_num, i, c1] += 1
-                Y_r_HNC[thread_num, j, c2] += 1
+                Y_s_HVC[thread_num, i, c1] += 1
+                Y_r_HVC[thread_num, j, c2] += 1
                 Y_HAK[thread_num, a, k] += 1
-                Y_HTS[thread_num, t, s] += 1
-                Y_HSKCC[thread_num, s, k, c1, c2] += 1
+                Y_HTR[thread_num, t, r] += 1
+                Y_HRKCC[thread_num, r, k, c1, c2] += 1
 
-    reduce_sources(Y_s_NC, Y_r_NC, Y_TS, Y_AK, Y_SKCC, Y_s_HNC, Y_r_HNC, Y_HTS, Y_HAK, Y_HSKCC, num_threads)
+    reduce_sources(Y_s_VC, Y_r_VC, Y_TR, Y_AK, Y_RKCC, Y_s_HVC, Y_r_HVC, Y_HTR, Y_HAK, Y_HRKCC, num_threads)
 
 
-cpdef reduce_sources(unsigned int[:, ::1] Y_s_NC,
-                     unsigned int[:, ::1] Y_r_NC,
-                     unsigned int[:, ::1] Y_TS,
+cpdef reduce_sources(unsigned int[:, ::1] Y_s_VC,
+                     unsigned int[:, ::1] Y_r_VC,
+                     unsigned int[:, ::1] Y_TR,
                      unsigned int[:, ::1] Y_AK,
-                     unsigned int[:, :, :, ::1] Y_SKCC,
-                     unsigned int[:, :, ::1] Y_s_HNC,
-                     unsigned int[:, :, ::1] Y_r_HNC,
-                     unsigned int[:, :, ::1] Y_HTS,
+                     unsigned int[:, :, :, ::1] Y_RKCC,
+                     unsigned int[:, :, ::1] Y_s_HVC,
+                     unsigned int[:, :, ::1] Y_r_HVC,
+                     unsigned int[:, :, ::1] Y_HTR,
                      unsigned int[:, :, ::1] Y_HAK,
-                     unsigned int[:, :, :, :, ::1] Y_HSKCC,
+                     unsigned int[:, :, :, :, ::1] Y_HRKCC,
                      size_t num_threads):
     cdef:
-        size_t N, A, T, S, K, C
-        np.intp_t i, j, a, t, s, c1, c2, k, thread_num
+        size_t V, A, T, R, K, C
+        np.intp_t i, j, a, t, r, c1, c2, k, thread_num
     
-    N, C = Y_s_NC.shape[0], Y_s_NC.shape[1]
+    V, C = Y_s_VC.shape[0], Y_s_VC.shape[1]
     A, K = Y_AK.shape[0], Y_AK.shape[1]
-    T, S = Y_TS.shape[0], Y_TS.shape[1]
+    T, R = Y_TR.shape[0], Y_TR.shape[1]
     
-    Y_s_NC[:, :] = 0
-    Y_r_NC[:, :] = 0
+    Y_s_VC[:, :] = 0
+    Y_r_VC[:, :] = 0
     Y_AK[:, :] = 0
-    Y_TS[:, :] = 0
-    Y_SKCC[:, :, :, :] = 0
+    Y_TR[:, :] = 0
+    Y_RKCC[:, :, :, :] = 0
 
     with nogil:
         for thread_num in xrange(num_threads):
-            for i in prange(N, schedule='dynamic', num_threads=num_threads):
+            for i in prange(V, schedule='static', num_threads=num_threads):
                 for c1 in xrange(C):
-                    Y_s_NC[i, c1] += Y_s_HNC[thread_num, i, c1]
-                    Y_r_NC[i, c1] += Y_r_HNC[thread_num, i, c1]
-            for a in prange(A, schedule='dynamic', num_threads=num_threads):
+                    Y_s_VC[i, c1] += Y_s_HVC[thread_num, i, c1]
+                    Y_r_VC[i, c1] += Y_r_HVC[thread_num, i, c1]
+            for a in prange(A, schedule='static', num_threads=num_threads):
                 for k in xrange(K):
                     Y_AK[a, k] += Y_HAK[thread_num, a, k]
-            for s in prange(S, schedule='dynamic', num_threads=num_threads):
+            for r in prange(R, schedule='static', num_threads=num_threads):
                 for t in xrange(T):
-                    Y_TS[t, s] += Y_HTS[thread_num, t, s]
+                    Y_TR[t, r] += Y_HTR[thread_num, t, r]
                 for k in xrange(K):
                     for c1 in xrange(C):
                         for c2 in xrange(C):
-                            Y_SKCC[s, k, c1, c2] += Y_HSKCC[thread_num, s, k, c1, c2]
+                            Y_RKCC[r, k, c1, c2] += Y_HRKCC[thread_num, r, k, c1, c2]
 
 
 ###############################################################################
@@ -228,7 +224,7 @@ cpdef _vec_crt(unsigned int[::1] m_I, double[::1] r_I, unsigned int[::1] l_I):
 
     cdef np.intp_t i
     with nogil:
-        for i in prange(I, schedule='dynamic'):
+        for i in prange(I, schedule='static'):
             l_I[i] = sample_crt(m_I[i], r_I[i])
 
 cpdef unsigned int _sumcrt(unsigned int[::1] m_I, double[::1] r_I):
@@ -257,7 +253,7 @@ cpdef unsigned int _par_sumcrt(unsigned int[::1] m_I, double[::1] r_I, size_t nu
     L_H = np.zeros(num_threads, dtype=np.uint32)
 
     with nogil:
-        for i in prange(I, schedule='dynamic', num_threads=num_threads):
+        for i in prange(I, schedule='static', num_threads=num_threads):
             thread_num = omp_get_thread_num()
             L_H[thread_num] += sample_crt(m_I[i], r_I[i])
 
