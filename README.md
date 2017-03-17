@@ -1,5 +1,5 @@
 # Bayesian Poisson Tucker decomposition
-Source code for the paper: [Bayesian Poisson Tucker Decomposition for Learning the Structure of International Relations] (http://people.cs.umass.edu/~aschein/ScheinZhouBleiWallach2016_paper.pdf) by Aaron Schein, Mingyuan Zhou, David M. Blei, and Hanna Wallach, in ICML 2016.
+Source code for the paper: [Bayesian Poisson Tucker Decomposition for Learning the Structure of International Relations](http://people.cs.umass.edu/~aschein/ScheinZhouBleiWallach2016_paper.pdf) by Aaron Schein, Mingyuan Zhou, David M. Blei, and Hanna Wallach, in ICML 2016.
 
 The MIT License (MIT)
 
