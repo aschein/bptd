@@ -33,6 +33,28 @@ cpdef int get_omp_num_threads():
 ###############################################################################
 
 
+
+
+cdef int add(double[::1] A, double[::1] B):
+
+    cdef:
+        int i, j, I, J, out
+
+    I = A.shape[0]
+    J = B.shape[0]
+
+    out = 0
+    for i in range(I):
+        out += A[i]
+    for j in range(J):
+        out += B[j]
+
+    return out
+
+
+
+
+
 cdef int searchsorted(double val, double[::1] arr, int imax) nogil:
     cdef:
         int imin, imid
