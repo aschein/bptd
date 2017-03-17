@@ -27,7 +27,10 @@ SOFTWARE.
 
 * [bptd.py](https://github.com/aschein/bptd/blob/master/code/bptd.py): The main code file.  Implements Gibbs sampling inference for BPTD.
 * [sampling.pyx](https://github.com/aschein/bptd/blob/master/code/sampling.pyx): Sampling methods including Cython implementation of compositional allocation.
+* [csample.h](https://github.com/aschein/bptd/blob/master/code/csample.cpp): Header file for a C++ implementation of sampling for the CRT distribution.
+* [csample.cpp](https://github.com/aschein/bptd/blob/master/code/csample.cpp): C++ implementation of sampling for the CRT distribution.
 * [setup.py](https://github.com/aschein/bptd/blob/master/code/setup.py): Setup file for compiling Cython.
+* [toy_example.py](https://github.com/aschein/bptd/blob/master/code/toy_example.py): Toy example of using the model.
 
 ## Dependencies:
 
@@ -41,27 +44,36 @@ SOFTWARE.
 
 ## Example usage:
 ```
+import numpy as np
 import numpy.random as rn
 from bptd import BPTD
 
-N = 10  # number of actors  ("V", in the paper)
+V = 10  # number of actors
 A = 4   # number of action types
 T = 5   # number of time steps
 
-Y = rn.poisson(10, size=(N, N, A, T))  # toy example of a count tensor of size N x N x A x T
+Y = rn.poisson(10, size=(V, V, A, T))  # toy example of a count tensor of size V x V x A x T
+Y[np.identity(V).astype(bool)] = 0     # the diagonal is always assumed undefined (set to 0)
 
-model = BPTD(n_compressions=2,   # number of compressions (or "regimes") of time steps
-             n_communities=4,    # number of communities of actors
-             n_topics=2,         # number of topics of action types
+C = 4   # number of communities of actors
+K = 2   # number of communities of actors
+R = 2   # number of regimes of time steps
+
+model = BPTD(n_regimes=R,
+             n_communities=C,
+             n_topics=K,
              n_iter=1000,        # how many Gibbs sampling iterations
-             verbose=False,      # whether to printout information each iteration
-             n_threads=1)        # how many threads to use (best to use 1)
+             verbose=True)       # whether to printout information each iteration
 
 model.fit(Y)
 
-Theta_NC = model.Theta_NC         # actor-community factor matrix, size N X C
+Theta_VC = model.Theta_VC         # actor-community factor matrix, size V X C
 Phi_AK = model.Phi_AK             # action-topic factor matrix, size A x K
-Psi_TS = model.Psi_TS             # time-regime factor matrix, size T x S
-Lambda_SKCC = model.Lambda_SKCC   # core tensor, size S x K x C x C
+Psi_TR = model.Psi_TR             # time-regime factor matrix, size T x R
+Lambda_RKCC = model.Lambda_RKCC   # core tensor, size R x K x C x C
+
+recon = model.reconstruct()               # model reconstruction of the training data Y
+idx = ~np.identity(V).astype(bool)        # off-diagonal indices
+mae = np.abs(Y[idx] - recon[idx]).mean()  # mean absolute error on training data
 
 
