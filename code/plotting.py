@@ -151,9 +151,6 @@ if __name__ == '__main__':
     W_d_C = state['W_d_C']
     Lambda_RKCC = state['Lambda_RKCC']
 
-
-    
-
     S, K, C = Lambda_RKCC.shape[:-1]
     N = Theta_NC.shape[0]
     mask_NN = np.abs(1 - np.identity(N).astype(int))
